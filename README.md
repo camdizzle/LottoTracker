@@ -38,10 +38,10 @@ A small family web app to track weekly lotto tickets and results for
 ```bash
 # from the repo root
 npm install          # installs server and client deps
-npm run dev          # starts server (3001) and client (5173) together
+npm run dev          # starts server (3001) and client (5280) together
 ```
 
-Open http://localhost:5173.
+Open http://localhost:5280.
 
 ### Production build
 
