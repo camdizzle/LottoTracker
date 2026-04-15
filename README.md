@@ -46,9 +46,27 @@ Open http://localhost:5280.
 ### Production build
 
 ```bash
-npm run build        # builds the React client
+npm run build        # cleans previous build, then writes index.html + assets/ to the repo root
 npm start            # serves API + static client on $PORT (default 3001)
 ```
+
+The built `index.html` and `assets/` directory are placed at the **repo
+root** (not inside `client/dist`) so a git-push deploy to a webserver that
+serves files from the repo root works out of the box.
+
+### Deploying via `git push`
+
+```bash
+npm run build        # regenerates index.html + assets/ at the repo root
+git add index.html assets
+git commit -m "Rebuild client"
+git push             # pushes to your webserver
+```
+
+On the server, run `npm install --omit=dev` once and start the Node
+process with `npm start` (or your process manager of choice). The Node
+process only needs to handle `/api/*`; your webserver can serve
+`index.html` and `/assets/*` directly from the repo root.
 
 ### Environment
 
