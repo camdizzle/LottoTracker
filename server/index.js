@@ -136,10 +136,11 @@ app.post('/api/results/refresh', requireAuth, async (_req, res) => {
 });
 
 // --- Static client in production ---
-const clientDist = path.join(__dirname, '..', 'client', 'dist');
-app.use(express.static(clientDist));
+// Built client files live at the repo root (index.html + assets/).
+const rootDir = path.join(__dirname, '..');
+app.use('/assets', express.static(path.join(rootDir, 'assets')));
 app.get(/^(?!\/api).*/, (_req, res) => {
-  res.sendFile(path.join(clientDist, 'index.html'), (err) => {
+  res.sendFile(path.join(rootDir, 'index.html'), (err) => {
     if (err) res.status(404).send('Client build not found. Run `npm run build`.');
   });
 });
