@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { getTickets, getResults } from '../api.js';
+import { getTickets, getResults, getPeople } from '../api.js';
 import ResultCard from '../components/ResultCard.jsx';
 import TicketCard from '../components/TicketCard.jsx';
+import BalanceStrip from '../components/BalanceStrip.jsx';
 import { evaluateTicket } from '../prizes.js';
 
 function findResultForTicket(results, ticket) {
@@ -12,14 +13,16 @@ function findResultForTicket(results, ticket) {
 export default function Results() {
   const [tickets, setTickets] = useState([]);
   const [results, setResults] = useState(null);
+  const [people, setPeople] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    Promise.all([getTickets(), getResults()])
-      .then(([t, r]) => {
+    Promise.all([getTickets(), getResults(), getPeople()])
+      .then(([t, r, p]) => {
         setTickets(t);
         setResults(r);
+        setPeople(p);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -61,6 +64,8 @@ export default function Results() {
             : `$${totalWinnings.toLocaleString()}`}
         </div>
       </div>
+
+      <BalanceStrip people={people} />
 
       <section>
         <h2 className="text-xl font-bold mb-3">Latest Drawings</h2>
