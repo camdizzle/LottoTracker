@@ -5,9 +5,17 @@ import {
   deleteTicket,
   checkAuth,
   refreshResults,
+  getPeople,
+  getPricing,
+  addPerson,
+  updatePerson,
+  deletePerson,
+  addDeposit,
+  addPayout,
 } from '../api.js';
 import Ball from '../components/Ball.jsx';
 import TicketCard from '../components/TicketCard.jsx';
+import { formatCents, parseDollarsToCents } from '../format.js';
 
 const GAME_CONFIG = {
   megaMillions: {
@@ -47,8 +55,12 @@ export default function Admin() {
   );
   const [authed, setAuthed] = useState(false);
   const [authError, setAuthError] = useState('');
-  const [tickets, setTickets] = useState([]);
 
+  const [tickets, setTickets] = useState([]);
+  const [people, setPeople] = useState([]);
+  const [pricing, setPricing] = useState({});
+
+  // Ticket form
   const [game, setGame] = useState('megaMillions');
   const [drawDate, setDrawDate] = useState('');
   const [whites, setWhites] = useState(emptyWhites(5));
@@ -57,10 +69,32 @@ export default function Admin() {
   const [multiplier, setMultiplier] = useState('');
   const [label, setLabel] = useState('');
   const [formError, setFormError] = useState('');
+
+  // Deposit form
+  const [depositPersonId, setDepositPersonId] = useState('');
+  const [depositAmount, setDepositAmount] = useState('');
+  const [depositNote, setDepositNote] = useState('');
+  const [depositError, setDepositError] = useState('');
+
+  // Payout form
+  const [payoutAmount, setPayoutAmount] = useState('');
+  const [payoutNote, setPayoutNote] = useState('');
+  const [payoutError, setPayoutError] = useState('');
+
+  // New person form
+  const [newPersonName, setNewPersonName] = useState('');
+
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState('');
 
   const cfg = GAME_CONFIG[game];
+  const activePeople = people.filter((p) => p.active !== false);
+  const activeCount = activePeople.length;
+  const ticketCost = pricing[game] || 0;
+  const perPersonCents =
+    activeCount > 0 ? Math.floor(ticketCost / activeCount) : 0;
+  const perPersonRemainder =
+    activeCount > 0 ? ticketCost - perPersonCents * activeCount : 0;
 
   useEffect(() => {
     if (password) tryLogin(password);
@@ -68,7 +102,8 @@ export default function Admin() {
   }, []);
 
   useEffect(() => {
-    if (authed) getTickets().then(setTickets).catch(() => {});
+    if (authed) reloadAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authed]);
 
   useEffect(() => {
@@ -77,6 +112,26 @@ export default function Admin() {
     setUseMultiplier(false);
     setMultiplier('');
   }, [game, cfg.whiteCount]);
+
+  async function reloadAll() {
+    try {
+      const [t, p, pr] = await Promise.all([
+        getTickets(),
+        getPeople(),
+        getPricing(),
+      ]);
+      setTickets(t);
+      setPeople(p);
+      setPricing(pr);
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
+  function showFlash(msg) {
+    setFlash(msg);
+    setTimeout(() => setFlash(''), 2500);
+  }
 
   async function tryLogin(pw) {
     const ok = await checkAuth(pw);
@@ -97,7 +152,7 @@ export default function Admin() {
     localStorage.removeItem('adminPw');
   }
 
-  async function handleSubmit(e) {
+  async function handleTicketSubmit(e) {
     e.preventDefault();
     setFormError('');
     const nums = whites.map((w) => Number(w)).filter((n) => n > 0);
@@ -134,10 +189,8 @@ export default function Admin() {
       setUseMultiplier(false);
       setMultiplier('');
       setLabel('');
-      setFlash('Ticket added');
-      setTimeout(() => setFlash(''), 2000);
-      const t = await getTickets();
-      setTickets(t);
+      showFlash('Ticket added and split across active people');
+      await reloadAll();
     } catch (err) {
       setFormError(err.message);
     } finally {
@@ -145,23 +198,108 @@ export default function Admin() {
     }
   }
 
-  async function handleDelete(id) {
-    if (!confirm('Delete this ticket?')) return;
+  async function handleTicketDelete(id) {
+    if (!confirm('Delete this ticket? Its deductions will be refunded.')) return;
     await deleteTicket(id, password);
-    const t = await getTickets();
-    setTickets(t);
+    showFlash('Ticket deleted and deductions refunded');
+    await reloadAll();
   }
 
   async function handleRefresh() {
     setBusy(true);
     try {
       await refreshResults(password);
-      setFlash('Results refreshed');
-      setTimeout(() => setFlash(''), 2000);
+      showFlash('Results refreshed');
     } catch (e) {
       setFormError(e.message);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleDeposit(e) {
+    e.preventDefault();
+    setDepositError('');
+    if (!depositPersonId) return setDepositError('Pick a person');
+    const cents = parseDollarsToCents(depositAmount);
+    if (!Number.isFinite(cents) || cents <= 0) {
+      return setDepositError('Enter a positive dollar amount');
+    }
+    try {
+      await addDeposit(
+        {
+          personId: depositPersonId,
+          amountCents: cents,
+          description: depositNote,
+        },
+        password
+      );
+      setDepositAmount('');
+      setDepositNote('');
+      showFlash('Deposit recorded');
+      await reloadAll();
+    } catch (err) {
+      setDepositError(err.message);
+    }
+  }
+
+  async function handlePayout(e) {
+    e.preventDefault();
+    setPayoutError('');
+    const cents = parseDollarsToCents(payoutAmount);
+    if (!Number.isFinite(cents) || cents <= 0) {
+      return setPayoutError('Enter a positive dollar amount');
+    }
+    try {
+      await addPayout(
+        { amountCents: cents, description: payoutNote },
+        password
+      );
+      setPayoutAmount('');
+      setPayoutNote('');
+      showFlash('Payout split across active people');
+      await reloadAll();
+    } catch (err) {
+      setPayoutError(err.message);
+    }
+  }
+
+  async function handleAddPerson(e) {
+    e.preventDefault();
+    if (!newPersonName.trim()) return;
+    try {
+      await addPerson(newPersonName, password);
+      setNewPersonName('');
+      showFlash('Person added');
+      await reloadAll();
+    } catch (err) {
+      showFlash(`Error: ${err.message}`);
+    }
+  }
+
+  async function handleRenamePerson(id, name) {
+    const current = people.find((p) => p.id === id)?.name || '';
+    const next = prompt('New name:', current);
+    if (!next || next === current) return;
+    await updatePerson(id, { name: next }, password);
+    await reloadAll();
+  }
+
+  async function handleToggleActive(id, active) {
+    await updatePerson(id, { active }, password);
+    await reloadAll();
+  }
+
+  async function handleDeletePerson(id) {
+    if (!confirm('Remove this person? Only works if they have no transactions.')) {
+      return;
+    }
+    try {
+      await deletePerson(id, password);
+      showFlash('Person removed');
+      await reloadAll();
+    } catch (err) {
+      alert(err.message);
     }
   }
 
@@ -197,7 +335,7 @@ export default function Admin() {
   const previewSpecial = special ? Number(special) : null;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-bold">Admin</h2>
         <div className="flex gap-2">
@@ -221,8 +359,9 @@ export default function Admin() {
         <div className="bg-green-700 text-white px-4 py-2 rounded">{flash}</div>
       )}
 
+      {/* Ticket form */}
       <form
-        onSubmit={handleSubmit}
+        onSubmit={handleTicketSubmit}
         className="bg-slate-800 border border-slate-700 p-4 rounded-lg space-y-4"
       >
         <h3 className="font-bold text-lg">Add Ticket</h3>
@@ -235,9 +374,9 @@ export default function Admin() {
               onChange={(e) => setGame(e.target.value)}
               className="w-full bg-slate-700 rounded px-3 py-2 mt-1"
             >
-              <option value="megaMillions">Mega Millions</option>
-              <option value="powerball">Powerball</option>
-              <option value="superLotto">Super Lotto Plus</option>
+              <option value="megaMillions">Mega Millions ($5)</option>
+              <option value="powerball">Powerball ($2)</option>
+              <option value="superLotto">Super Lotto Plus ($1)</option>
             </select>
           </label>
           <label className="block">
@@ -348,6 +487,32 @@ export default function Admin() {
           </div>
         </div>
 
+        <div className="bg-slate-900 p-3 rounded border border-slate-700 text-sm">
+          <div className="text-xs text-slate-400 mb-1">Cost split</div>
+          {activeCount === 0 ? (
+            <div className="text-red-400">
+              No active people — ticket will be created without deductions.
+            </div>
+          ) : (
+            <div>
+              <span className="font-semibold">
+                {formatCents(ticketCost)}
+              </span>{' '}
+              ticket ÷ <span className="font-semibold">{activeCount}</span>{' '}
+              active people ={' '}
+              <span className="text-red-400 font-semibold">
+                {formatCents(perPersonCents)}
+              </span>{' '}
+              per person
+              {perPersonRemainder > 0 && (
+                <span className="text-slate-400 ml-1">
+                  (+1¢ for first {perPersonRemainder})
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
         {formError && <div className="text-red-400 text-sm">{formError}</div>}
         <button
           type="submit"
@@ -358,6 +523,169 @@ export default function Admin() {
         </button>
       </form>
 
+      {/* Deposit form */}
+      <form
+        onSubmit={handleDeposit}
+        className="bg-slate-800 border border-slate-700 p-4 rounded-lg space-y-3"
+      >
+        <h3 className="font-bold text-lg">Record Venmo Deposit</h3>
+        <div className="grid md:grid-cols-3 gap-3">
+          <label className="block">
+            <span className="text-sm text-slate-400">Person</span>
+            <select
+              value={depositPersonId}
+              onChange={(e) => setDepositPersonId(e.target.value)}
+              className="w-full bg-slate-700 rounded px-3 py-2 mt-1"
+            >
+              <option value="">Select…</option>
+              {people.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                  {p.active === false ? ' (inactive)' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-sm text-slate-400">Amount ($)</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={depositAmount}
+              onChange={(e) => setDepositAmount(e.target.value)}
+              placeholder="20.00"
+              className="w-full bg-slate-700 rounded px-3 py-2 mt-1"
+            />
+          </label>
+          <label className="block">
+            <span className="text-sm text-slate-400">Note</span>
+            <input
+              type="text"
+              value={depositNote}
+              onChange={(e) => setDepositNote(e.target.value)}
+              placeholder="Venmo 4/15"
+              className="w-full bg-slate-700 rounded px-3 py-2 mt-1"
+            />
+          </label>
+        </div>
+        {depositError && (
+          <div className="text-red-400 text-sm">{depositError}</div>
+        )}
+        <button
+          type="submit"
+          className="bg-green-600 hover:bg-green-500 font-bold px-4 py-2 rounded"
+        >
+          Record Deposit
+        </button>
+      </form>
+
+      {/* Payout form */}
+      <form
+        onSubmit={handlePayout}
+        className="bg-slate-800 border border-slate-700 p-4 rounded-lg space-y-3"
+      >
+        <h3 className="font-bold text-lg">Record Winnings Payout</h3>
+        <p className="text-xs text-slate-400">
+          Splits the amount equally across all active people as credits.
+        </p>
+        <div className="grid md:grid-cols-2 gap-3">
+          <label className="block">
+            <span className="text-sm text-slate-400">Total winnings ($)</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={payoutAmount}
+              onChange={(e) => setPayoutAmount(e.target.value)}
+              placeholder="100.00"
+              className="w-full bg-slate-700 rounded px-3 py-2 mt-1"
+            />
+          </label>
+          <label className="block">
+            <span className="text-sm text-slate-400">Note</span>
+            <input
+              type="text"
+              value={payoutNote}
+              onChange={(e) => setPayoutNote(e.target.value)}
+              placeholder="PB 4/12 payout"
+              className="w-full bg-slate-700 rounded px-3 py-2 mt-1"
+            />
+          </label>
+        </div>
+        {payoutError && (
+          <div className="text-red-400 text-sm">{payoutError}</div>
+        )}
+        <button
+          type="submit"
+          className="bg-yellow-500 hover:bg-yellow-400 text-slate-900 font-bold px-4 py-2 rounded"
+        >
+          Split Payout
+        </button>
+      </form>
+
+      {/* People */}
+      <section className="bg-slate-800 border border-slate-700 p-4 rounded-lg space-y-3">
+        <h3 className="font-bold text-lg">People</h3>
+        <div className="space-y-2">
+          {people.map((p) => (
+            <div
+              key={p.id}
+              className={`flex items-center justify-between bg-slate-900 rounded px-3 py-2 ${
+                p.active === false ? 'opacity-60' : ''
+              }`}
+            >
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold truncate">
+                  {p.name}
+                  {p.active === false && (
+                    <span className="ml-2 text-xs text-slate-500">
+                      (inactive)
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs text-slate-400">
+                  Balance: {formatCents(p.balanceCents || 0)}
+                </div>
+              </div>
+              <div className="flex gap-2 text-xs">
+                <button
+                  onClick={() => handleRenamePerson(p.id)}
+                  className="bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded"
+                >
+                  Rename
+                </button>
+                <button
+                  onClick={() =>
+                    handleToggleActive(p.id, p.active === false)
+                  }
+                  className="bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded"
+                >
+                  {p.active === false ? 'Activate' : 'Deactivate'}
+                </button>
+                <button
+                  onClick={() => handleDeletePerson(p.id)}
+                  className="bg-red-800 hover:bg-red-700 px-2 py-1 rounded"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <form onSubmit={handleAddPerson} className="flex gap-2 pt-2">
+          <input
+            type="text"
+            value={newPersonName}
+            onChange={(e) => setNewPersonName(e.target.value)}
+            placeholder="New person name"
+            className="flex-1 bg-slate-700 rounded px-3 py-2"
+          />
+          <button className="bg-yellow-400 text-slate-900 font-bold px-4 py-2 rounded hover:bg-yellow-300">
+            Add
+          </button>
+        </form>
+      </section>
+
+      {/* Existing tickets */}
       <section>
         <h3 className="font-bold mb-3">Existing Tickets ({tickets.length})</h3>
         {tickets.length === 0 ? (
@@ -367,7 +695,7 @@ export default function Admin() {
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
             {tickets.map((t) => (
-              <TicketCard key={t.id} ticket={t} onDelete={handleDelete} />
+              <TicketCard key={t.id} ticket={t} onDelete={handleTicketDelete} />
             ))}
           </div>
         )}

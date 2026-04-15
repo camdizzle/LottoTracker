@@ -2,6 +2,7 @@ import { Routes, Route, Link, NavLink } from 'react-router-dom';
 import Results from './pages/Results.jsx';
 import History from './pages/History.jsx';
 import Admin from './pages/Admin.jsx';
+import Balances from './pages/Balances.jsx';
 
 const navClass = ({ isActive }) =>
   isActive
@@ -19,6 +20,7 @@ export default function App() {
           <div className="flex gap-5 text-sm">
             <NavLink to="/" end className={navClass}>Results</NavLink>
             <NavLink to="/history" className={navClass}>History</NavLink>
+            <NavLink to="/balances" className={navClass}>Balances</NavLink>
             <NavLink to="/admin" className={navClass}>Admin</NavLink>
           </div>
         </div>
@@ -27,6 +29,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Results />} />
           <Route path="/history" element={<History />} />
+          <Route path="/balances" element={<Balances />} />
           <Route path="/admin" element={<Admin />} />
         </Routes>
       </main>
