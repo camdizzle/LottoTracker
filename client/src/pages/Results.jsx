@@ -36,6 +36,7 @@ export default function Results() {
     powerball: results?.powerball?.[0] || null,
     superLotto: results?.superLotto?.[0] || null,
   };
+  const lastFetched = results?.lastFetched;
 
   let totalWinnings = 0;
   let hasJackpot = false;
@@ -68,7 +69,14 @@ export default function Results() {
       <BalanceStrip people={people} />
 
       <section>
-        <h2 className="text-xl font-bold mb-3">Latest Drawings</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-xl font-bold">Latest Drawings</h2>
+          {lastFetched && (
+            <span className="text-xs text-slate-500">
+              Updated {new Date(lastFetched).toLocaleString()}
+            </span>
+          )}
+        </div>
         <div className="grid gap-3 md:grid-cols-3">
           <ResultCard game="megaMillions" result={latest.megaMillions} />
           <ResultCard game="powerball" result={latest.powerball} />

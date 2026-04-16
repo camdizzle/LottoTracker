@@ -36,17 +36,21 @@ function requireAuth(req, res, next) {
 }
 
 async function refreshResults() {
+  const status = { megaMillions: 'ok', powerball: 'ok', superLotto: 'ok' };
   const [mm, pb, sl] = await Promise.all([
     fetchMegaMillions().catch((e) => {
       console.warn('MM refresh failed:', e.message);
+      status.megaMillions = e.message;
       return null;
     }),
     fetchPowerball().catch((e) => {
       console.warn('PB refresh failed:', e.message);
+      status.powerball = e.message;
       return null;
     }),
     fetchSuperLotto().catch((e) => {
       console.warn('SL refresh failed:', e.message);
+      status.superLotto = e.message;
       return null;
     }),
   ]);
@@ -58,14 +62,19 @@ async function refreshResults() {
     lastFetched: Date.now(),
   };
   writeDb(db);
-  return db.results;
+  // Super Lotto returns [] on failure (graceful), flag it if empty and it was a fetch error.
+  if (sl && sl.length === 0 && status.superLotto === 'ok') {
+    status.superLotto = 'ok (no draws returned)';
+  }
+  return { results: db.results, status };
 }
 
 async function getResultsCached() {
   const db = readDb();
   const last = db.results?.lastFetched || 0;
   if (Date.now() - last > CACHE_MS) {
-    return await refreshResults();
+    const { results } = await refreshResults();
+    return results;
   }
   return db.results;
 }
@@ -83,7 +92,9 @@ app.get('/api/tickets', (_req, res) => {
 
 app.get('/api/results', async (_req, res) => {
   try {
-    const results = await getResultsCached();
+    const cached = await getResultsCached();
+    // getResultsCached returns either { results, status } or the raw db.results
+    const results = cached.results || cached;
     res.json(results);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -187,11 +198,58 @@ app.delete('/api/tickets/:id', requireAuth, (req, res) => {
 
 app.post('/api/results/refresh', requireAuth, async (_req, res) => {
   try {
-    const results = await refreshResults();
-    res.json(results);
+    const { results, status } = await refreshResults();
+    res.json({ ...results, _fetchStatus: status });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// Manual result entry — lets admins type in winning numbers when APIs are down.
+app.post('/api/results/manual', requireAuth, (req, res) => {
+  const { game, drawDate, whiteNumbers, specialNumber, multiplier } =
+    req.body || {};
+  if (!['megaMillions', 'powerball', 'superLotto'].includes(game)) {
+    return res.status(400).json({ error: 'Invalid game' });
+  }
+  if (!drawDate) {
+    return res.status(400).json({ error: 'drawDate required' });
+  }
+  if (!Array.isArray(whiteNumbers) || whiteNumbers.length !== 5) {
+    return res.status(400).json({ error: 'Need exactly 5 white numbers' });
+  }
+  if (specialNumber == null) {
+    return res.status(400).json({ error: 'specialNumber required' });
+  }
+
+  const entry = {
+    drawDate,
+    whiteNumbers: whiteNumbers.map(Number),
+    multiplier: multiplier ? Number(multiplier) : null,
+  };
+
+  // Set the game-specific special ball field.
+  if (game === 'megaMillions') entry.megaBall = Number(specialNumber);
+  else if (game === 'powerball') entry.powerball = Number(specialNumber);
+  else entry.megaNumber = Number(specialNumber);
+
+  const db = readDb();
+  if (!db.results) {
+    db.results = { megaMillions: [], powerball: [], superLotto: [] };
+  }
+  if (!db.results[game]) db.results[game] = [];
+
+  // Replace if same drawDate exists, otherwise prepend.
+  const idx = db.results[game].findIndex((r) => r.drawDate === drawDate);
+  if (idx >= 0) {
+    db.results[game][idx] = entry;
+  } else {
+    db.results[game].unshift(entry);
+    // Keep sorted by drawDate descending.
+    db.results[game].sort((a, b) => b.drawDate.localeCompare(a.drawDate));
+  }
+  writeDb(db);
+  res.json({ ok: true, entry });
 });
 
 // People

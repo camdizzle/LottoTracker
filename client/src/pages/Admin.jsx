@@ -5,6 +5,7 @@ import {
   deleteTicket,
   checkAuth,
   refreshResults,
+  addManualResult,
   getPeople,
   getPricing,
   addPerson,
@@ -80,6 +81,17 @@ export default function Admin() {
   const [payoutAmount, setPayoutAmount] = useState('');
   const [payoutNote, setPayoutNote] = useState('');
   const [payoutError, setPayoutError] = useState('');
+
+  // Manual result entry
+  const [resultGame, setResultGame] = useState('megaMillions');
+  const [resultDate, setResultDate] = useState('');
+  const [resultWhites, setResultWhites] = useState(emptyWhites(5));
+  const [resultSpecial, setResultSpecial] = useState('');
+  const [resultMultiplier, setResultMultiplier] = useState('');
+  const [resultError, setResultError] = useState('');
+
+  // Refresh status
+  const [refreshStatus, setRefreshStatus] = useState(null);
 
   // New person form
   const [newPersonName, setNewPersonName] = useState('');
@@ -207,11 +219,60 @@ export default function Admin() {
 
   async function handleRefresh() {
     setBusy(true);
+    setRefreshStatus(null);
     try {
-      await refreshResults(password);
-      showFlash('Results refreshed');
+      const data = await refreshResults(password);
+      const status = data._fetchStatus;
+      if (status) {
+        setRefreshStatus(status);
+        const allOk = Object.values(status).every((s) => s === 'ok');
+        showFlash(allOk ? 'All results refreshed successfully' : 'Refresh done — check status below');
+      } else {
+        showFlash('Results refreshed');
+      }
     } catch (e) {
       setFormError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const resultCfg = GAME_CONFIG[resultGame];
+
+  async function handleManualResult(e) {
+    e.preventDefault();
+    setResultError('');
+    const nums = resultWhites.map((w) => Number(w)).filter((n) => n > 0);
+    if (nums.length !== 5) return setResultError('Need 5 numbers');
+    if (new Set(nums).size !== nums.length)
+      return setResultError('Numbers must be unique');
+    if (nums.some((n) => n < 1 || n > resultCfg.whiteMax))
+      return setResultError(`Numbers must be 1\u2013${resultCfg.whiteMax}`);
+    const sp = Number(resultSpecial);
+    if (!sp || sp < 1 || sp > resultCfg.specialMax)
+      return setResultError(
+        `${resultCfg.specialLabel} must be 1\u2013${resultCfg.specialMax}`
+      );
+    if (!resultDate) return setResultError('Draw date required');
+
+    setBusy(true);
+    try {
+      await addManualResult(
+        {
+          game: resultGame,
+          drawDate: resultDate,
+          whiteNumbers: nums,
+          specialNumber: sp,
+          multiplier: resultMultiplier ? Number(resultMultiplier) : null,
+        },
+        password
+      );
+      setResultWhites(emptyWhites(5));
+      setResultSpecial('');
+      setResultMultiplier('');
+      showFlash(`${resultCfg.label} result saved for ${resultDate}`);
+    } catch (err) {
+      setResultError(err.message);
     } finally {
       setBusy(false);
     }
@@ -358,6 +419,181 @@ export default function Admin() {
       {flash && (
         <div className="bg-green-700 text-white px-4 py-2 rounded">{flash}</div>
       )}
+
+      {refreshStatus && (
+        <div className="bg-slate-800 border border-slate-700 p-4 rounded-lg space-y-2">
+          <h3 className="font-bold text-sm">API Fetch Status</h3>
+          {Object.entries(refreshStatus).map(([key, val]) => {
+            const label =
+              key === 'megaMillions'
+                ? 'Mega Millions'
+                : key === 'powerball'
+                ? 'Powerball'
+                : 'Super Lotto Plus';
+            const ok = val === 'ok';
+            return (
+              <div key={key} className="flex items-center gap-2 text-sm">
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    ok ? 'bg-green-400' : 'bg-red-400'
+                  }`}
+                />
+                <span className="font-medium">{label}:</span>
+                <span className={ok ? 'text-green-400' : 'text-red-400'}>
+                  {ok ? 'Updated' : val}
+                </span>
+              </div>
+            );
+          })}
+          <p className="text-xs text-slate-400 mt-1">
+            If an API failed, you can enter results manually below.
+          </p>
+        </div>
+      )}
+
+      {/* Manual result entry */}
+      <form
+        onSubmit={handleManualResult}
+        className="bg-slate-800 border border-slate-700 p-4 rounded-lg space-y-4"
+      >
+        <div>
+          <h3 className="font-bold text-lg">Enter Drawing Results Manually</h3>
+          <p className="text-xs text-slate-400 mt-1">
+            Use this when APIs are slow or down. Enter the official winning
+            numbers from the lottery website.
+          </p>
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-3">
+          <label className="block">
+            <span className="text-sm text-slate-400">Game</span>
+            <select
+              value={resultGame}
+              onChange={(e) => {
+                setResultGame(e.target.value);
+                setResultWhites(emptyWhites(5));
+                setResultSpecial('');
+                setResultMultiplier('');
+              }}
+              className="w-full bg-slate-700 rounded px-3 py-2 mt-1"
+            >
+              <option value="megaMillions">Mega Millions</option>
+              <option value="powerball">Powerball</option>
+              <option value="superLotto">Super Lotto Plus</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-sm text-slate-400">Draw Date</span>
+            <input
+              type="date"
+              value={resultDate}
+              onChange={(e) => setResultDate(e.target.value)}
+              className="w-full bg-slate-700 rounded px-3 py-2 mt-1"
+            />
+          </label>
+        </div>
+
+        <div>
+          <span className="text-sm text-slate-400">
+            Winning Numbers (1–{resultCfg.whiteMax})
+          </span>
+          <div className="flex gap-2 mt-1 flex-wrap">
+            {resultWhites.map((w, i) => (
+              <input
+                key={i}
+                type="number"
+                min="1"
+                max={resultCfg.whiteMax}
+                value={w}
+                onChange={(e) => {
+                  const next = [...resultWhites];
+                  next[i] = e.target.value;
+                  setResultWhites(next);
+                }}
+                className="w-16 bg-slate-700 rounded px-2 py-2 text-center"
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="flex gap-4 flex-wrap">
+          <div>
+            <span className="text-sm text-slate-400">
+              {resultCfg.specialLabel} (1–{resultCfg.specialMax})
+            </span>
+            <input
+              type="number"
+              min="1"
+              max={resultCfg.specialMax}
+              value={resultSpecial}
+              onChange={(e) => setResultSpecial(e.target.value)}
+              className="block w-20 bg-slate-700 rounded px-2 py-2 text-center mt-1"
+            />
+          </div>
+          {resultCfg.multiplierLabel && (
+            <div>
+              <span className="text-sm text-slate-400">
+                {resultCfg.multiplierLabel}
+              </span>
+              <select
+                value={resultMultiplier}
+                onChange={(e) => setResultMultiplier(e.target.value)}
+                className="block bg-slate-700 rounded px-3 py-2 mt-1"
+              >
+                <option value="">None</option>
+                {resultCfg.multiplierOptions.map((m) => (
+                  <option key={m} value={m}>
+                    ×{m}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+
+        <div className="bg-slate-900 p-3 rounded border border-slate-700">
+          <div className="text-xs text-slate-400 mb-2">Preview</div>
+          <div className="flex gap-2 items-center flex-wrap">
+            {resultWhites.map((w, i) =>
+              w ? (
+                <Ball
+                  key={i}
+                  number={Number(w)}
+                  game={resultGame}
+                  size="sm"
+                />
+              ) : (
+                <div
+                  key={i}
+                  className="w-9 h-9 rounded-full border-2 border-dashed border-slate-600"
+                />
+              )
+            )}
+            <span className="text-slate-500 px-1">+</span>
+            {resultSpecial ? (
+              <Ball
+                number={Number(resultSpecial)}
+                game={resultGame}
+                isSpecial
+                size="sm"
+              />
+            ) : (
+              <div className="w-9 h-9 rounded-full border-2 border-dashed border-slate-600" />
+            )}
+          </div>
+        </div>
+
+        {resultError && (
+          <div className="text-red-400 text-sm">{resultError}</div>
+        )}
+        <button
+          type="submit"
+          disabled={busy}
+          className="bg-blue-600 hover:bg-blue-500 font-bold px-4 py-2 rounded disabled:opacity-50"
+        >
+          Save Result
+        </button>
+      </form>
 
       {/* Ticket form */}
       <form
