@@ -115,36 +115,103 @@ export async function fetchPowerball() {
 
 // ─── Super Lotto Plus ─────────────────────────────────────────────────────────
 
+// Helper: extract numbers from WinningNumbers which can be either an array or
+// a keyed object like { "0": { Number: "1" }, "1": { Number: "5" }, ... }.
+function parseWinningNumbers(raw) {
+  if (!raw) return [];
+  const entries = Array.isArray(raw) ? raw : Object.values(raw);
+  return entries
+    .map((w) => Number(w?.Number ?? w?.number ?? w))
+    .filter((n) => Number.isFinite(n));
+}
+
+function parseSLDraws(draws) {
+  return draws
+    .map((d) => {
+      const rawDate = d.DrawDate || d.drawDate || d.Date;
+      const nums = parseWinningNumbers(
+        d.WinningNumbers || d.winningNumbers || d.Numbers
+      );
+      if (nums.length < 6) return null;
+      return {
+        drawDate: stripTime(rawDate),
+        whiteNumbers: nums.slice(0, 5),
+        megaNumber: nums[5],
+      };
+    })
+    .filter(Boolean);
+}
+
+// Fallback: scrape the Super Lotto game page HTML for the latest draw.
+async function scrapeSuperLottoPage() {
+  const res = await fetch('https://www.calottery.com/draw-games/superlotto-plus', {
+    headers: { 'User-Agent': 'Mozilla/5.0 LottoTracker/1.0' },
+    redirect: 'follow',
+  });
+  if (!res.ok) throw new Error(`SL page fetch failed: ${res.status}`);
+  const html = await res.text();
+
+  // Extract draw date: <span class="draw-date"><strong>WED/APR 15, 2026</strong>
+  const dateMatch = html.match(/draw-date[^>]*>.*?(\w{3})\/(\w{3})\s+(\d{1,2}),\s+(\d{4})/i);
+  if (!dateMatch) throw new Error('Could not parse draw date from SL page');
+
+  const months = { JAN: '01', FEB: '02', MAR: '03', APR: '04', MAY: '05', JUN: '06',
+    JUL: '07', AUG: '08', SEP: '09', OCT: '10', NOV: '11', DEC: '12' };
+  const mon = months[dateMatch[2].toUpperCase()];
+  const day = dateMatch[3].padStart(2, '0');
+  const drawDate = `${dateMatch[4]}-${mon}-${day}`;
+
+  // Extract winning numbers from: <span class="winning-numbers-inner-wrapper">1</span>
+  const numMatches = [...html.matchAll(/winning-numbers-inner-wrapper[^>]*>(\d+)</g)];
+  if (numMatches.length < 6) throw new Error('Could not parse winning numbers from SL page');
+  const nums = numMatches.map((m) => Number(m[1]));
+
+  return [
+    {
+      drawDate,
+      whiteNumbers: nums.slice(0, 5),
+      megaNumber: nums[5],
+    },
+  ];
+}
+
 export async function fetchSuperLotto() {
-  // CA Lottery has no official public API. This unofficial endpoint may change
-  // or go down for maintenance; we fall back to an empty list so the rest of
-  // the app keeps working. Admins can manually enter results when this fails.
+  // Try the API endpoint first; if it fails (503, bad data), fall back to
+  // scraping the game page HTML for the latest draw.
   try {
     const res = await fetch(SL_URL, {
       headers: { Accept: 'application/json', 'User-Agent': 'LottoTracker/1.0' },
     });
-    if (!res.ok) throw new Error(`SL fetch failed: ${res.status}`);
+    if (!res.ok) throw new Error(`SL API ${res.status}`);
+    const ct = res.headers.get('content-type') || '';
+    if (!ct.includes('json')) throw new Error(`SL API returned ${ct || 'non-JSON'}`);
     const data = await res.json();
+
+    // Parse PreviousDraws (main list of past results).
     const draws =
       data?.PreviousDraws || data?.previousDraws || data?.Draws || [];
-    return draws
-      .map((d) => {
-        const rawDate = d.DrawDate || d.drawDate || d.Date;
-        const winningRaw =
-          d.WinningNumbers || d.winningNumbers || d.Numbers || [];
-        const nums = winningRaw
-          .map((w) => Number(w?.Number ?? w?.number ?? w))
-          .filter((n) => Number.isFinite(n));
-        if (nums.length < 6) return null;
-        return {
-          drawDate: stripTime(rawDate),
-          whiteNumbers: nums.slice(0, 5),
-          megaNumber: nums[5],
-        };
-      })
-      .filter(Boolean);
-  } catch (err) {
-    console.warn('SuperLotto fetch failed:', err.message);
-    return [];
+    const drawList = Array.isArray(draws) ? draws : Object.values(draws);
+    let results = parseSLDraws(drawList);
+
+    // Also check MostRecentDraw in case PreviousDraws is stale.
+    const recent = data?.MostRecentDraw;
+    if (recent) {
+      const parsed = parseSLDraws([recent]);
+      if (parsed.length > 0) {
+        const already = results.some((r) => r.drawDate === parsed[0].drawDate);
+        if (!already) results.unshift(parsed[0]);
+      }
+    }
+
+    if (results.length > 0) return results;
+    throw new Error('SL API returned no valid draws');
+  } catch (apiErr) {
+    console.warn('SL API failed, trying page scrape:', apiErr.message);
+    try {
+      return await scrapeSuperLottoPage();
+    } catch (scrapeErr) {
+      console.warn('SL page scrape also failed:', scrapeErr.message);
+      return [];
+    }
   }
 }
