@@ -69,6 +69,14 @@ export function refreshResults(password) {
   }).then(handle);
 }
 
+export function addManualResult(data, password) {
+  return fetch(`${BASE}/results/manual`, {
+    method: 'POST',
+    headers: authJson(password),
+    body: JSON.stringify(data),
+  }).then(handle);
+}
+
 // --- Admin: people ---
 export function addPerson(name, password) {
   return fetch(`${BASE}/people`, {
