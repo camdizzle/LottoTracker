@@ -56,9 +56,9 @@ async function refreshResults() {
   ]);
   const db = readDb();
   db.results = {
-    megaMillions: mm ?? db.results?.megaMillions ?? [],
-    powerball: pb ?? db.results?.powerball ?? [],
-    superLotto: sl ?? db.results?.superLotto ?? [],
+    megaMillions: mm?.length ? mm : (db.results?.megaMillions ?? []),
+    powerball: pb?.length ? pb : (db.results?.powerball ?? []),
+    superLotto: sl?.length ? sl : (db.results?.superLotto ?? []),
     lastFetched: Date.now(),
   };
   writeDb(db);
