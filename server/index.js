@@ -35,6 +35,19 @@ function requireAuth(req, res, next) {
   next();
 }
 
+// Merge fetched results with existing ones so manual entries are never lost.
+// Fetched data wins for the same drawDate; manual entries for dates not in
+// the fetched set are preserved. Keeps the 60 most recent draws.
+function mergeDrawResults(existing, fetched) {
+  if (!fetched?.length) return existing || [];
+  const byDate = new Map();
+  for (const r of existing || []) byDate.set(r.drawDate, r);
+  for (const r of fetched) byDate.set(r.drawDate, r);
+  return [...byDate.values()]
+    .sort((a, b) => b.drawDate.localeCompare(a.drawDate))
+    .slice(0, 60);
+}
+
 async function refreshResults() {
   const status = { megaMillions: 'ok', powerball: 'ok', superLotto: 'ok' };
   const [mm, pb, sl] = await Promise.all([
@@ -55,14 +68,14 @@ async function refreshResults() {
     }),
   ]);
   const db = readDb();
+  const prev = db.results || {};
   db.results = {
-    megaMillions: mm?.length ? mm : (db.results?.megaMillions ?? []),
-    powerball: pb?.length ? pb : (db.results?.powerball ?? []),
-    superLotto: sl?.length ? sl : (db.results?.superLotto ?? []),
+    megaMillions: mergeDrawResults(prev.megaMillions, mm),
+    powerball: mergeDrawResults(prev.powerball, pb),
+    superLotto: mergeDrawResults(prev.superLotto, sl),
     lastFetched: Date.now(),
   };
   writeDb(db);
-  // Super Lotto returns [] on failure (graceful), flag it if empty and it was a fetch error.
   if (sl && sl.length === 0 && status.superLotto === 'ok') {
     status.superLotto = 'ok (no draws returned)';
   }
