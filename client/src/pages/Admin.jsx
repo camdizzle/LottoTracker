@@ -25,8 +25,9 @@ const GAME_CONFIG = {
     whiteMax: 70,
     specialLabel: 'Mega Ball',
     specialMax: 25,
-    multiplierLabel: 'Megaplier',
-    multiplierOptions: [2, 3, 4, 5],
+    multiplierLabel: 'Multiplier',
+    multiplierOptions: [2, 3, 4, 5, 10],
+    multiplierBuiltIn: true,
   },
   powerball: {
     label: 'Powerball',
@@ -191,7 +192,9 @@ export default function Admin() {
           drawDate,
           numbers: nums,
           specialNumber: sp,
-          multiplier: useMultiplier && multiplier ? Number(multiplier) : null,
+          multiplier: cfg.multiplierBuiltIn
+            ? (multiplier ? Number(multiplier) : null)
+            : (useMultiplier && multiplier ? Number(multiplier) : null),
           label,
         },
         password
@@ -530,7 +533,7 @@ export default function Admin() {
               className="block w-20 bg-slate-700 rounded px-2 py-2 text-center mt-1"
             />
           </div>
-          {resultCfg.multiplierLabel && (
+          {resultCfg.multiplierLabel && !resultCfg.multiplierBuiltIn && (
             <div>
               <span className="text-sm text-slate-400">
                 {resultCfg.multiplierLabel}
@@ -663,7 +666,23 @@ export default function Admin() {
           />
         </div>
 
-        {cfg.multiplierLabel && (
+        {cfg.multiplierLabel && cfg.multiplierBuiltIn ? (
+          <div>
+            <span className="text-sm text-slate-400">{cfg.multiplierLabel} (on ticket)</span>
+            <select
+              value={multiplier}
+              onChange={(e) => setMultiplier(e.target.value)}
+              className="block bg-slate-700 rounded px-3 py-2 mt-1"
+            >
+              <option value="">Select…</option>
+              {cfg.multiplierOptions.map((m) => (
+                <option key={m} value={m}>
+                  ×{m}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : cfg.multiplierLabel ? (
           <div className="flex items-center gap-3">
             <label className="flex items-center gap-2">
               <input
@@ -688,7 +707,7 @@ export default function Admin() {
               </select>
             )}
           </div>
-        )}
+        ) : null}
 
         <label className="block">
           <span className="text-sm text-slate-400">Label (optional)</span>

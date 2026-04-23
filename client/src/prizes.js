@@ -1,5 +1,6 @@
-// Simplified base prize tables. Jackpot marked as isJackpot.
+// Base prize tables. Jackpot marked as isJackpot.
 // Keys: "<whiteMatches>_<specialMatched>"
+// Mega Millions (April 2025+): $5 ticket, built-in per-ticket multiplier (2–10×).
 const MM_PRIZES = {
   '5_true':  { isJackpot: true },
   '5_false': { amount: 1_000_000 },
@@ -8,8 +9,8 @@ const MM_PRIZES = {
   '3_true':  { amount: 200 },
   '3_false': { amount: 10 },
   '2_true':  { amount: 10 },
-  '1_true':  { amount: 4 },
-  '0_true':  { amount: 2 },
+  '1_true':  { amount: 7 },
+  '0_true':  { amount: 5 },
 };
 
 const PB_PRIZES = {
@@ -24,16 +25,18 @@ const PB_PRIZES = {
   '0_true':  { amount: 4 },
 };
 
-// California Super Lotto Plus is pari-mutuel; these are rough averages for display.
+// California Super Lotto Plus: pari-mutuel above the bottom two tiers.
+// Amounts here are rough averages; actual payouts vary per draw.
 const SL_PRIZES = {
   '5_true':  { isJackpot: true },
-  '5_false': { amount: 25_000 },
-  '4_true':  { amount: 1_500 },
-  '4_false': { amount: 75 },
-  '3_true':  { amount: 55 },
+  '5_false': { amount: 28_000 },
+  '4_true':  { amount: 2_000 },
+  '4_false': { amount: 100 },
+  '3_true':  { amount: 50 },
   '3_false': { amount: 10 },
   '2_true':  { amount: 10 },
   '1_true':  { amount: 2 },
+  '0_true':  { amount: 1 },
 };
 
 const TABLES = {
@@ -49,9 +52,16 @@ export function computePrize(game, whiteMatches, specialMatched, ticketMultiplie
   const base = table[key];
   if (!base) return { amount: 0 };
   if (base.isJackpot) return { amount: 0, isJackpot: true };
-  // Megaplier / Power Play applies only if the ticket opted in AND the draw had one.
-  // Does not apply to the $1M match-5 in Powerball (that uses a fixed 2x), simplified here.
-  const mult = ticketMultiplier && drawMultiplier ? drawMultiplier : 1;
+
+  let mult = 1;
+  if (game === 'megaMillions') {
+    // New MM: every ticket has a built-in multiplier (2–10×).
+    mult = ticketMultiplier || 1;
+  } else if (game === 'powerball' && ticketMultiplier && drawMultiplier) {
+    // PB match-5 with Power Play is always $2M regardless of multiplier drawn.
+    if (whiteMatches === 5 && !specialMatched) return { amount: 2_000_000 };
+    mult = drawMultiplier;
+  }
   return { amount: base.amount * mult };
 }
 
