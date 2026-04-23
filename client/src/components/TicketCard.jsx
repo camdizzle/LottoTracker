@@ -8,7 +8,6 @@ const GAME_LABELS = {
 };
 
 const MULT_LABELS = {
-  megaMillions: 'Megaplier',
   powerball: 'Power Play',
 };
 
@@ -58,9 +57,9 @@ export default function TicketCard({ ticket, result, onDelete }) {
             size="sm"
           />
         )}
-        {ticket.multiplier && MULT_LABELS[ticket.game] && (
+        {ticket.multiplier && (
           <span className="text-xs bg-slate-700 px-2 py-1 rounded ml-1">
-            {MULT_LABELS[ticket.game]} ×{ticket.multiplier}
+            {MULT_LABELS[ticket.game] ? `${MULT_LABELS[ticket.game]} ` : ''}×{ticket.multiplier}
           </span>
         )}
       </div>
