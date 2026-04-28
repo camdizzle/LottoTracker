@@ -70,6 +70,7 @@ export default function Admin() {
   const [useMultiplier, setUseMultiplier] = useState(false);
   const [multiplier, setMultiplier] = useState('');
   const [label, setLabel] = useState('');
+  const [batch, setBatch] = useState([]);
   const [formError, setFormError] = useState('');
 
   // Deposit form
@@ -104,10 +105,6 @@ export default function Admin() {
   const activePeople = people.filter((p) => p.active !== false);
   const activeCount = activePeople.length;
   const ticketCost = pricing[game] || 0;
-  const perPersonCents =
-    activeCount > 0 ? Math.floor(ticketCost / activeCount) : 0;
-  const perPersonRemainder =
-    activeCount > 0 ? ticketCost - perPersonCents * activeCount : 0;
 
   useEffect(() => {
     if (password) tryLogin(password);
@@ -124,6 +121,7 @@ export default function Admin() {
     setSpecial('');
     setUseMultiplier(false);
     setMultiplier('');
+    setBatch([]);
   }, [game, cfg.whiteCount]);
 
   async function reloadAll() {
@@ -165,46 +163,74 @@ export default function Admin() {
     localStorage.removeItem('adminPw');
   }
 
-  async function handleTicketSubmit(e) {
-    e.preventDefault();
+  function validateEntry() {
     setFormError('');
     const nums = whites.map((w) => Number(w)).filter((n) => n > 0);
     if (nums.length !== cfg.whiteCount) {
-      return setFormError(`Need ${cfg.whiteCount} numbers`);
+      setFormError(`Need ${cfg.whiteCount} numbers`);
+      return null;
     }
     if (new Set(nums).size !== nums.length) {
-      return setFormError('Numbers must be unique');
+      setFormError('Numbers must be unique');
+      return null;
     }
     if (nums.some((n) => n < 1 || n > cfg.whiteMax)) {
-      return setFormError(`Numbers must be 1–${cfg.whiteMax}`);
+      setFormError(`Numbers must be 1–${cfg.whiteMax}`);
+      return null;
     }
     const sp = Number(special);
     if (!sp || sp < 1 || sp > cfg.specialMax) {
-      return setFormError(`${cfg.specialLabel} must be 1–${cfg.specialMax}`);
+      setFormError(`${cfg.specialLabel} must be 1–${cfg.specialMax}`);
+      return null;
+    }
+    return { nums, sp };
+  }
+
+  function handleAddToBatch(e) {
+    e.preventDefault();
+    const entry = validateEntry();
+    if (!entry) return;
+    setBatch((prev) => [
+      ...prev,
+      {
+        numbers: entry.nums,
+        specialNumber: entry.sp,
+        multiplier: cfg.multiplierBuiltIn
+          ? (multiplier ? Number(multiplier) : null)
+          : (useMultiplier && multiplier ? Number(multiplier) : null),
+        label,
+      },
+    ]);
+    setWhites(emptyWhites(cfg.whiteCount));
+    setSpecial('');
+    setLabel('');
+    setFormError('');
+  }
+
+  async function handleSaveBatch() {
+    setFormError('');
+    if (batch.length === 0) {
+      return setFormError('Add at least one ticket to the batch');
     }
     if (!drawDate) return setFormError('Draw date required');
-
     setBusy(true);
     try {
-      await addTicket(
-        {
-          game,
-          drawDate,
-          numbers: nums,
-          specialNumber: sp,
-          multiplier: cfg.multiplierBuiltIn
-            ? (multiplier ? Number(multiplier) : null)
-            : (useMultiplier && multiplier ? Number(multiplier) : null),
-          label,
-        },
-        password
+      for (const entry of batch) {
+        await addTicket(
+          {
+            game,
+            drawDate,
+            numbers: entry.numbers,
+            specialNumber: entry.specialNumber,
+            multiplier: entry.multiplier,
+            label: entry.label,
+          },
+          password
+        );
+      }
+      showFlash(
+        `${batch.length} ticket${batch.length > 1 ? 's' : ''} saved — update the date for the next draw`
       );
-      setWhites(emptyWhites(cfg.whiteCount));
-      setSpecial('');
-      setUseMultiplier(false);
-      setMultiplier('');
-      setLabel('');
-      showFlash('Ticket added and split across active people');
       await reloadAll();
     } catch (err) {
       setFormError(err.message);
@@ -600,10 +626,10 @@ export default function Admin() {
 
       {/* Ticket form */}
       <form
-        onSubmit={handleTicketSubmit}
+        onSubmit={handleAddToBatch}
         className="bg-slate-800 border border-slate-700 p-4 rounded-lg space-y-4"
       >
-        <h3 className="font-bold text-lg">Add Ticket</h3>
+        <h3 className="font-bold text-lg">Add Tickets</h3>
 
         <div className="grid md:grid-cols-2 gap-3">
           <label className="block">
@@ -742,40 +768,112 @@ export default function Admin() {
           </div>
         </div>
 
-        <div className="bg-slate-900 p-3 rounded border border-slate-700 text-sm">
-          <div className="text-xs text-slate-400 mb-1">Cost split</div>
-          {activeCount === 0 ? (
-            <div className="text-red-400">
-              No active people — ticket will be created without deductions.
-            </div>
-          ) : (
-            <div>
-              <span className="font-semibold">
-                {formatCents(ticketCost)}
-              </span>{' '}
-              ticket ÷ <span className="font-semibold">{activeCount}</span>{' '}
-              active people ={' '}
-              <span className="text-red-400 font-semibold">
-                {formatCents(perPersonCents)}
-              </span>{' '}
-              per person
-              {perPersonRemainder > 0 && (
-                <span className="text-slate-400 ml-1">
-                  (+1¢ for first {perPersonRemainder})
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-
         {formError && <div className="text-red-400 text-sm">{formError}</div>}
         <button
           type="submit"
           disabled={busy}
-          className="bg-yellow-400 hover:bg-yellow-300 text-slate-900 font-bold px-4 py-2 rounded disabled:opacity-50"
+          className="bg-slate-600 hover:bg-slate-500 font-bold px-4 py-2 rounded disabled:opacity-50"
         >
-          Add Ticket
+          Add to Batch
         </button>
+
+        {batch.length > 0 && (
+          <div className="bg-slate-900 p-3 rounded border border-slate-700 space-y-2">
+            <div className="flex justify-between items-center">
+              <div className="text-xs text-slate-400">
+                Batch ({batch.length} ticket{batch.length > 1 ? 's' : ''})
+              </div>
+              <button
+                type="button"
+                onClick={() => setBatch([])}
+                className="text-xs text-red-400 hover:text-red-300"
+              >
+                Clear All
+              </button>
+            </div>
+            {batch.map((entry, idx) => (
+              <div
+                key={idx}
+                className="flex items-center gap-2 bg-slate-800 rounded px-3 py-2"
+              >
+                <div className="flex gap-1 items-center flex-wrap flex-1">
+                  {entry.numbers.map((n, i) => (
+                    <Ball key={i} number={n} game={game} size="sm" />
+                  ))}
+                  <span className="text-slate-500 px-1">+</span>
+                  <Ball
+                    number={entry.specialNumber}
+                    game={game}
+                    isSpecial
+                    size="sm"
+                  />
+                  {entry.multiplier && (
+                    <span className="text-xs bg-slate-700 px-2 py-1 rounded ml-1">
+                      ×{entry.multiplier}
+                    </span>
+                  )}
+                  {entry.label && (
+                    <span className="text-xs text-slate-400 ml-2">
+                      {entry.label}
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setBatch((prev) => prev.filter((_, i) => i !== idx))
+                  }
+                  className="text-xs text-red-400 hover:text-red-300 shrink-0"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {batch.length > 0 && (
+          <div className="bg-slate-900 p-3 rounded border border-slate-700 text-sm">
+            <div className="text-xs text-slate-400 mb-1">Cost split</div>
+            {activeCount === 0 ? (
+              <div className="text-red-400">
+                No active people — tickets will be created without deductions.
+              </div>
+            ) : (
+              <div>
+                <span className="font-semibold">{batch.length}</span>{' '}
+                ticket{batch.length > 1 ? 's' : ''} ×{' '}
+                <span className="font-semibold">
+                  {formatCents(ticketCost)}
+                </span>{' '}
+                ={' '}
+                <span className="font-semibold">
+                  {formatCents(ticketCost * batch.length)}
+                </span>{' '}
+                total ÷ <span className="font-semibold">{activeCount}</span>{' '}
+                people ={' '}
+                <span className="text-red-400 font-semibold">
+                  {formatCents(
+                    Math.floor((ticketCost * batch.length) / activeCount)
+                  )}
+                </span>{' '}
+                per person
+              </div>
+            )}
+          </div>
+        )}
+
+        {batch.length > 0 && (
+          <button
+            type="button"
+            onClick={handleSaveBatch}
+            disabled={busy}
+            className="w-full bg-yellow-400 hover:bg-yellow-300 text-slate-900 font-bold px-4 py-2 rounded disabled:opacity-50"
+          >
+            Save {batch.length} Ticket{batch.length > 1 ? 's' : ''} for{' '}
+            {drawDate || '(select date)'}
+          </button>
+        )}
       </form>
 
       {/* Deposit form */}
