@@ -37,15 +37,17 @@ function requireAuth(req, res, next) {
 
 // Merge fetched results with existing ones so manual entries are never lost.
 // Fetched data wins for the same drawDate; manual entries for dates not in
-// the fetched set are preserved. Keeps the 60 most recent draws.
+// the fetched set are preserved. History is never pruned: Total Won is
+// recomputed from tickets + stored results, so dropping an old draw would
+// silently zero out any winnings on tickets for that draw.
 function mergeDrawResults(existing, fetched) {
   if (!fetched?.length) return existing || [];
   const byDate = new Map();
   for (const r of existing || []) byDate.set(r.drawDate, r);
   for (const r of fetched) byDate.set(r.drawDate, r);
-  return [...byDate.values()]
-    .sort((a, b) => b.drawDate.localeCompare(a.drawDate))
-    .slice(0, 60);
+  return [...byDate.values()].sort((a, b) =>
+    b.drawDate.localeCompare(a.drawDate)
+  );
 }
 
 async function refreshResults() {
