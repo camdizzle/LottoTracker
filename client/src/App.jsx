@@ -3,6 +3,7 @@ import Results from './pages/Results.jsx';
 import History from './pages/History.jsx';
 import Admin from './pages/Admin.jsx';
 import Balances from './pages/Balances.jsx';
+import Dashboard from './pages/Dashboard.jsx';
 
 const navClass = ({ isActive }) =>
   isActive
@@ -31,6 +32,7 @@ export default function App() {
           <Route path="/history" element={<History />} />
           <Route path="/balances" element={<Balances />} />
           <Route path="/admin" element={<Admin />} />
+          <Route path="/dashboard" element={<Dashboard />} />
         </Routes>
       </main>
     </div>

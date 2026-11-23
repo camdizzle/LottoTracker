@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   getTickets,
   addTicket,
@@ -429,6 +430,12 @@ export default function Admin() {
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-bold">Admin</h2>
         <div className="flex gap-2">
+          <Link
+            to="/dashboard"
+            className="text-sm bg-slate-600 hover:bg-slate-500 px-3 py-1 rounded"
+          >
+            Dashboard
+          </Link>
           <button
             onClick={handleRefresh}
             disabled={busy}
